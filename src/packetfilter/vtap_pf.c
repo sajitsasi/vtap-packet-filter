@@ -1,4 +1,7 @@
-/* sdasdfasdf */
+/* This program reads in data from either an interface or a pcap file with
+ * data from Azure V-TAP and prints out the "inner" packet while discarding
+ * the outer packet
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <pcap.h>  
