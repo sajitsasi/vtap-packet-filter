@@ -34,40 +34,40 @@
 
 
 struct sniff_ethernet {
-	u_char ether_dhost[ETHER_ADDR_LEN]; /* Destination host address */
-	u_char ether_shost[ETHER_ADDR_LEN]; /* Source host address */
-	u_short ether_type; /* IP? ARP? RARP? etc */
+	unsigned char ether_dhost[ETHER_ADDR_LEN]; /* Destination host address */
+	unsigned char ether_shost[ETHER_ADDR_LEN]; /* Source host address */
+	unsigned short ether_type; /* IP? ARP? RARP? etc */
 };
 
 struct sniff_ip {
-	u_char ip_vhl;		/* version << 4 | header length >> 2 */
-	u_char ip_tos;		/* type of service */
-	u_short ip_len;		/* total length */
-	u_short ip_id;		/* identification */
-	u_short ip_off;		/* fragment offset field */
+	unsigned char ip_vhl;		/* version << 4 | header length >> 2 */
+	unsigned char ip_tos;		/* type of service */
+	unsigned short ip_len;		/* total length */
+	unsigned short ip_id;		/* identification */
+	unsigned short ip_off;		/* fragment offset field */
 #define IP_RF 0x8000		/* reserved fragment flag */
 #define IP_DF 0x4000		/* dont fragment flag */
 #define IP_MF 0x2000		/* more fragments flag */
 #define IP_OFFMASK 0x1fff	/* mask for fragmenting bits */
-	u_char ip_ttl;		/* time to live */
-	u_char ip_p;		/* protocol */
-	u_short ip_sum;		/* checksum */
+	unsigned char ip_ttl;		/* time to live */
+	unsigned char ip_p;		/* protocol */
+	unsigned short ip_sum;		/* checksum */
 	struct in_addr ip_src,ip_dst; /* source and dest address */
 };
 #define IP_HL(ip)		(((ip)->ip_vhl) & 0x0f)
 #define IP_V(ip)		(((ip)->ip_vhl) >> 4)
 
 /* TCP header */
-typedef u_int tcp_seq;
+typedef unsigned int tcp_seq;
 
 struct sniff_tcp {
-	u_short th_sport;	/* source port */
-	u_short th_dport;	/* destination port */
+	unsigned short th_sport;	/* source port */
+	unsigned short th_dport;	/* destination port */
 	tcp_seq th_seq;		/* sequence number */
 	tcp_seq th_ack;		/* acknowledgement number */
-	u_char th_offx2;	/* data offset, rsvd */
+	unsigned char th_offx2;	/* data offset, rsvd */
 #define TH_OFF(th)	(((th)->th_offx2 & 0xf0) >> 4)
-	u_char th_flags;
+	unsigned char th_flags;
 #define TH_FIN 0x01
 #define TH_SYN 0x02
 #define TH_RST 0x04
@@ -77,9 +77,9 @@ struct sniff_tcp {
 #define TH_ECE 0x40
 #define TH_CWR 0x80
 #define TH_FLAGS (TH_FIN|TH_SYN|TH_RST|TH_ACK|TH_URG|TH_ECE|TH_CWR)
-	u_short th_win;		/* window */
-	u_short th_sum;		/* checksum */
-	u_short th_urp;		/* urgent pointer */
+	unsigned short th_win;		/* window */
+	unsigned short th_sum;		/* checksum */
+	unsigned short th_urp;		/* urgent pointer */
 };
 
 struct sniff_udp {
@@ -98,30 +98,46 @@ struct sniff_vxlan {
 
 struct tcpInfo {
     char ip[IPv4_ADDR_LEN];
-    u_short port;
+    unsigned short port;
     struct servent *service;
 };
 
 #define UDP_SIZE sizeof(struct sniff_udp)
 #define VXLAN_SIZE sizeof(struct sniff_vxlan)
 
+void print_data(const struct pcap_pkthdr *hdr, char *buf)
+{
+    struct tm *tm;
+    struct tm result;
+    char logbuf[MAX_BUF_SIZE+32];
 
-void handle_tcp(const u_char *packet)
+    if(NULL == hdr || NULL == buf) {
+        printf("ERROR: received NULL data\n");
+        return;
+    }
+    tm = gmtime_r(&hdr->ts.tv_sec, &result);
+    snprintf(logbuf, MAX_BUF_SIZE+31, "%d-%02d-%02dT%02d:%02d:%02d.%06lu,%s",
+        tm->tm_year+1900, tm->tm_mon, tm->tm_mday, tm->tm_hour,
+        tm->tm_min, tm->tm_sec, hdr->ts.tv_usec,buf);
+    printf("%s\n", logbuf);
+}
+
+void handle_tcp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
     struct sniff_tcp *tcp;
-    u_int ip_size;
-    u_int tcp_size;
+    unsigned int ip_size;
+    unsigned int tcp_size;
     struct tcpInfo src, dst;
     char buf[MAX_BUF_SIZE];
     char src_buf[MAX_BUF_SIZE/8], dst_buf[MAX_BUF_SIZE/8];
 
-    if(NULL == ip) {
+    if(NULL == ip || NULL == hdr) {
         printf("ERROR: received NULL packet\n");
         return;
     }
     ip_size = IP_HL(ip)*4;
-    tcp = (struct sniff_tcp *)((u_char *)ip + ip_size);
+    tcp = (struct sniff_tcp *)((unsigned char *)ip + ip_size);
     tcp_size = TH_OFF(tcp)*4;
     if(20 > tcp_size) {
         printf("TCP packet size < 20 bytes [%d]\n", tcp_size);
@@ -158,17 +174,17 @@ void handle_tcp(const u_char *packet)
     if(tcp->th_flags & TH_RST) {
         strncat(buf, ",RST", 4);
     }
-    printf("%s\n", buf);
+    print_data(hdr, buf);
 }
 
-void process_packet(u_char *args, const struct pcap_pkthdr *hdr, const u_char *packet)
+void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const unsigned char *packet)
 {
     struct sniff_ethernet *eth_outer, *eth_inner;
     struct sniff_ip *ip_outer, *ip_inner;
     struct sniff_udp *udp;
     struct sniff_vxlan *vxlan;
-    u_int eth_size = ETH_HDR_SIZE;
-    u_int ip_size;
+    unsigned int eth_size = ETH_HDR_SIZE;
+    unsigned int ip_size;
 
     eth_outer = (struct sniff_ethernet *)packet;
     if(0x81 == ntohs(eth_outer->ether_type)) {
@@ -181,15 +197,15 @@ void process_packet(u_char *args, const struct pcap_pkthdr *hdr, const u_char *p
         return;
     }
     //TODO: Process UDP and VXLAN, ignoring for now
-    udp = (struct sniff_udp *)((u_char *)ip_outer + ip_size);
-    vxlan = (struct sniff_vxlan *)((u_char *)udp + UDP_SIZE);
+    udp = (struct sniff_udp *)((unsigned char *)ip_outer + ip_size);
+    vxlan = (struct sniff_vxlan *)((unsigned char *)udp + UDP_SIZE);
 
     eth_size = ETH_HDR_SIZE;
-    eth_inner = (struct sniff_ethernet *)((u_char *)vxlan + VXLAN_SIZE);
+    eth_inner = (struct sniff_ethernet *)((unsigned char *)vxlan + VXLAN_SIZE);
     if(0x81 == ntohs(eth_inner->ether_type)) {
         eth_size += 4; //Skip VLAN header
     }
-    ip_inner = (struct sniff_ip *)((u_char *)eth_inner + eth_size);
+    ip_inner = (struct sniff_ip *)((unsigned char *)eth_inner + eth_size);
     ip_size = IP_HL(ip_inner)*4;
     if(20 > ip_size) {
         printf("ERROR: Inner IP header length < 20 bytes[%d]\n", ip_size);
@@ -198,27 +214,27 @@ void process_packet(u_char *args, const struct pcap_pkthdr *hdr, const u_char *p
     switch((int)ip_inner->ip_p) {
         case ICMP_PACKET:
             printf("ICMP packet\n");
-            //handle_icmp((u_char *)ip);
+            //handle_icmp((unsigned char *)ip);
             break;
         case IP_IN_IP_PACKET:
             printf("IP in IP packet\n");
-            //handle_ip_in_ip((u_char *)ip_inner);
+            //handle_ip_in_ip((unsigned char *)ip_inner);
             break;
         case TCP_PACKET:
             //printf("TCP packet\n");
-            handle_tcp((u_char *)ip_inner);
+            handle_tcp(hdr, (unsigned char *)ip_inner);
             break;
         case EGP_PACKET:
             printf("EGP packet\n");
-            //handle_EGP((u_char *)ip_inner);
+            //handle_EGP((unsigned char *)ip_inner);
             break;
         case IGP_PACKET:
             printf("IGP packet\n");
-            //handle_IGP((u_char *)ip_inner);
+            //handle_IGP((unsigned char *)ip_inner);
             break;
         case UDP_PACKET:
             printf("UDP packet\n");
-            //handle_udp((u_char *) + ip_size);
+            //handle_udp((unsigned char *) + ip_size);
             break;
     }
 }
@@ -233,6 +249,7 @@ int main(int argc, char **argv)
     char pcap_err[PCAP_ERRBUF_SIZE];
     char *filename = NULL;
     int rv;
+    extern char *optarg;
 
     memset(filter_exp, 0, FILTER_EXP_LEN);
     while((c = getopt(argc, argv, "i:p:f:")) != -1) {
@@ -294,7 +311,7 @@ int main(int argc, char **argv)
     }
     pcap_freecode(&fp);
     while(1) {
-        rv = pcap_dispatch(h, 0, process_packet, (u_char *)h);
+        rv = pcap_dispatch(h, 0, process_packet, (unsigned char *)h);
         if(-1 == rv) {
             printf("pcap_dispatch() returned -1\n");
             pcap_close(h);
