@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
 #include <time.h>
 #include <string.h>
@@ -23,6 +24,9 @@
 #define DEFAULT_FILTER_EXP "udp and port 4789"
 #define IPv4_ADDR_LEN   16
 #define MAX_BUF_SIZE    256
+#define XSM_BUF_SIZE    16
+#define SM_BUF_SIZE     32
+#define MED_BUF_SIZE    64
 
 //Identify packet types
 #define ICMP_PACKET     0x01
@@ -122,6 +126,76 @@ void print_data(const struct pcap_pkthdr *hdr, char *buf)
     printf("%s\n", logbuf);
 }
 
+void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
+{
+    struct sniff_ip *ip = (struct sniff_ip *)packet;
+    unsigned int ip_size;
+    struct icmphdr *icmp;
+    struct tcpInfo src, dst;
+    char buf[MAX_BUF_SIZE];
+    char icmp_type[SM_BUF_SIZE];
+
+    if(NULL == ip || NULL == hdr) {
+        printf("ERROR: received NULL packet\n");
+        return;
+    }
+
+    ip_size = IP_HL(ip)*4;
+    /* Handle IP packet first */
+    strncpy(src.ip, inet_ntoa(ip->ip_src), IPv4_ADDR_LEN);
+    strncpy(dst.ip, inet_ntoa(ip->ip_dst), IPv4_ADDR_LEN);
+    memset(buf, 0, sizeof(buf));
+    snprintf(buf, MAX_BUF_SIZE, "ICMP,%s,%s,",src.ip, dst.ip);
+    icmp = (struct icmphdr *)((unsigned char *)ip + ip_size);
+    memset(icmp_type, 0, sizeof(icmp_type));
+    switch(icmp->type) {
+        case ICMP_ECHOREPLY:
+            snprintf(icmp_type, SM_BUF_SIZE, "ECHO_REPLY");
+            break;
+        case ICMP_DEST_UNREACH:
+            snprintf(icmp_type, SM_BUF_SIZE, "UNREACHABLE");
+            break;
+        case ICMP_SOURCE_QUENCH:
+            snprintf(icmp_type, SM_BUF_SIZE, "QUENCH");
+            break;
+        case ICMP_REDIRECT:
+            snprintf(icmp_type, SM_BUF_SIZE, "REDIRECT");
+            break;
+        case ICMP_ECHO:
+            snprintf(icmp_type, SM_BUF_SIZE, "ECHO");
+            break;
+        case ICMP_TIME_EXCEEDED:
+            snprintf(icmp_type, SM_BUF_SIZE, "TIME_EXCEEDED");
+            break;
+        case ICMP_PARAMETERPROB:
+            snprintf(icmp_type, SM_BUF_SIZE, "PARAMETER_PROBLEM");
+            break;
+        case ICMP_TIMESTAMP:
+            snprintf(icmp_type, SM_BUF_SIZE, "TIMESTAMP");
+            break;
+        case ICMP_TIMESTAMPREPLY:
+            snprintf(icmp_type, SM_BUF_SIZE, "TIMESTAMP_REPLY");
+            break;
+        case ICMP_INFO_REQUEST:
+            snprintf(icmp_type, SM_BUF_SIZE, "INFO_REQUEST");
+            break;
+        case ICMP_INFO_REPLY:
+            snprintf(icmp_type, SM_BUF_SIZE, "INFO_REPLY");
+            break;
+        case ICMP_ADDRESS:
+            snprintf(icmp_type, SM_BUF_SIZE, "ADDRESS");
+            break;
+        case ICMP_ADDRESSREPLY:
+            snprintf(icmp_type, SM_BUF_SIZE, "ADDRESS_REPLY");
+            break;
+        default:
+            snprintf(icmp_type, SM_BUF_SIZE, "UNKNOWN-%d", icmp->type);
+            break;
+    }
+    strncat(buf, icmp_type, strlen(icmp_type));
+    print_data(hdr, buf);
+}
+
 void handle_tcp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
@@ -213,8 +287,8 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
     }
     switch((int)ip_inner->ip_p) {
         case ICMP_PACKET:
-            printf("ICMP packet\n");
-            //handle_icmp((unsigned char *)ip);
+            //printf("ICMP packet\n");
+            handle_icmp(hdr, (unsigned char *)ip_inner);
             break;
         case IP_IN_IP_PACKET:
             printf("IP in IP packet\n");
