@@ -150,7 +150,8 @@ void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
     memset(icmp_type, 0, sizeof(icmp_type));
     switch(icmp->type) {
         case ICMP_ECHOREPLY:
-            snprintf(icmp_type, SM_BUF_SIZE, "ECHO_REPLY");
+            snprintf(icmp_type, SM_BUF_SIZE, "ECHO_REPLY,0x%x,%d", 
+                icmp->un.echo.id, icmp->un.echo.sequence);
             break;
         case ICMP_DEST_UNREACH:
             snprintf(icmp_type, SM_BUF_SIZE, "UNREACHABLE");
@@ -162,7 +163,8 @@ void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
             snprintf(icmp_type, SM_BUF_SIZE, "REDIRECT");
             break;
         case ICMP_ECHO:
-            snprintf(icmp_type, SM_BUF_SIZE, "ECHO");
+            snprintf(icmp_type, SM_BUF_SIZE, "ECHO,0x%x,%d", 
+                icmp->un.echo.id, icmp->un.echo.sequence);
             break;
         case ICMP_TIME_EXCEEDED:
             snprintf(icmp_type, SM_BUF_SIZE, "TIME_EXCEEDED");
