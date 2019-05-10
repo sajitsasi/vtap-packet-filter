@@ -34,7 +34,7 @@
 #define TCP_PACKET      0x06
 #define EGP_PACKET      0x08
 #define IGP_PACKET      0x09
-#define UDP_PACKET      0x17
+#define UDP_PACKET      0x11
 
 
 struct sniff_ethernet {
@@ -198,6 +198,43 @@ void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
     print_data(hdr, buf);
 }
 
+void handle_udp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
+{
+    struct sniff_ip *ip = (struct sniff_ip *)packet;
+    struct sniff_udp *udp;
+    unsigned int ip_size;
+    struct tcpInfo src, dst;
+    char buf[MAX_BUF_SIZE];
+    char src_buf[MAX_BUF_SIZE/8], dst_buf[MAX_BUF_SIZE/8];
+
+    if(NULL == ip || NULL == hdr) {
+        printf("ERROR: received NULL packet\n");
+        return;
+    }
+    ip_size = IP_HL(ip)*4;
+    udp = (struct sniff_udp *)((unsigned char *)ip + ip_size);
+    strncpy(src.ip, inet_ntoa(ip->ip_src), IPv4_ADDR_LEN);
+    src.port = ntohs(udp->src);
+    src.service = getservbyport(udp->src, "udp");
+    if(src.service == NULL) {
+        snprintf(src_buf, MAX_BUF_SIZE/8, "%s:%d", src.ip, src.port);
+    } else {
+        snprintf(src_buf, MAX_BUF_SIZE/8, "%s:%s", src.ip, src.service->s_name);
+    }
+    strncpy(dst.ip, inet_ntoa(ip->ip_dst), IPv4_ADDR_LEN);
+    dst.port = ntohs(udp->dst);
+    dst.service = getservbyport(udp->dst, "udp");
+    if(dst.service == NULL) {
+        snprintf(dst_buf, MAX_BUF_SIZE/8, "%s:%d", dst.ip, dst.port);
+    } else {
+        snprintf(dst_buf, MAX_BUF_SIZE/8, "%s:%s", dst.ip, dst.service->s_name);
+    }
+    strncpy(dst.ip, inet_ntoa(ip->ip_dst), IPv4_ADDR_LEN);
+
+    snprintf(buf, MAX_BUF_SIZE-16, "UDP,%s,%s", src_buf, dst_buf);
+    print_data(hdr, buf);
+}
+
 void handle_tcp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
@@ -309,8 +346,8 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
             //handle_IGP((unsigned char *)ip_inner);
             break;
         case UDP_PACKET:
-            printf("UDP packet\n");
-            //handle_udp((unsigned char *) + ip_size);
+            //printf("UDP packet\n");
+            handle_udp(hdr, (unsigned char *) ip_inner);
             break;
     }
 }
