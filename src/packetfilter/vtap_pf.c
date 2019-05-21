@@ -27,6 +27,7 @@
 #define XSM_BUF_SIZE    16
 #define SM_BUF_SIZE     32
 #define MED_BUF_SIZE    64
+#define VXLAN_PORT      4789
 
 //Identify packet types
 #define ICMP_PACKET     0x01
@@ -299,20 +300,67 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
     unsigned int eth_size = ETH_HDR_SIZE;
     unsigned int ip_size;
 
+    /*
+     * The packets received on the V-TAP interface are VXLAN encapsulated 
+     * and need to be decapsulated before processing.  Packet structure is 
+     * as shown below
+     * 
+     *  ________________________________________________________________________
+     * |                                                                       |
+     * |  ETH   |    IP    | UDP |VXLAN|  ETH  |    IP    |        TCP         |
+     * |        |          |     |     |       |          |                    |
+     * |_______________________________________________________________________|
+     * 
+     * To access the actual packet, we would need to skip ahead to the inner IP
+     * packet. Steps to do so:
+     * 
+     * 1. Have sniff_ethernet point to beginning of packet
+     * 2. eth_size is 14 bytes by default
+     * 3. If the ethernet type is 0x81 (VLAN tagged), add 4 bytes for VLAN 
+     *    header
+     * 4. Verify IP header size
+     * 5. Point to UDP and VXLAN headers to process later if necessary
+     * 6. Inner Ethernet header will now be after VXLAN packet
+     * 7. Add appropriate bytes to point to inner IP packet
+     * 8. Determine packet type and process packet accordingly
+    */
+
+   //Point to outer Ethernet header
     eth_outer = (struct sniff_ethernet *)packet;
     if(0x81 == ntohs(eth_outer->ether_type)) {
-        eth_size += 4; //Skip VLAN header
+        eth_size += 4; //Skip VLAN header if needed
     }
+    //Point to outer IP packet
     ip_outer = (struct sniff_ip *)(packet + eth_size);
+    //Verify IP size
     ip_size = IP_HL(ip_outer)*4;
     if(20 > ip_size) {
         printf("ERROR: IP header length < 20 bytes[%d]\n", ip_size);
         return;
     }
-    //TODO: Process UDP and VXLAN, ignoring for now
+    /*
+     * Check if outer IP packet is UDP, if not ignore; assumption is that if
+     * it is UDP and the src or dst port is 4789, it's a VXLAN packet, if not
+     * ignore.
+    */
+    if(UDP_PACKET != (int)ip_outer->ip_p) {
+        //Not UDP Packet ignore
+        printf("Expecting VXLAN packet but got [0x%x] type\n", ip_outer->ip_p);
+        return;
+    }
+    /*
+     * Get pointer to UDP and VXLAN headers
+     * TODO: Process UDP and VXLAN, ignoring for now
+    */
     udp = (struct sniff_udp *)((unsigned char *)ip_outer + ip_size);
+    if(VXLAN_PORT != ntohs(udp->src && VXLAN_PORT != ntohs(udp->dst))) {
+        printf("Expecting VXLAN packet in UDP but src[%d], dst[%d] ports don't match\n", 
+            ntohs(udp->src), ntohs(udp->dst));
+        return;
+    }
     vxlan = (struct sniff_vxlan *)((unsigned char *)udp + UDP_SIZE);
 
+    //Now look at inner packet - actual packet between TAPped hosts
     eth_size = ETH_HDR_SIZE;
     eth_inner = (struct sniff_ethernet *)((unsigned char *)vxlan + VXLAN_SIZE);
     if(0x81 == ntohs(eth_inner->ether_type)) {
@@ -324,6 +372,7 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
         printf("ERROR: Inner IP header length < 20 bytes[%d]\n", ip_size);
         return;
     }
+    //Look determine IP packet type and handle accordingly
     switch((int)ip_inner->ip_p) {
         case ICMP_PACKET:
             //printf("ICMP packet\n");
