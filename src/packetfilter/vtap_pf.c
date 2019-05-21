@@ -353,7 +353,7 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
      * TODO: Process UDP and VXLAN, ignoring for now
     */
     udp = (struct sniff_udp *)((unsigned char *)ip_outer + ip_size);
-    if(VXLAN_PORT != ntohs(udp->src && VXLAN_PORT != ntohs(udp->dst))) {
+    if(VXLAN_PORT != ntohs(udp->src) && VXLAN_PORT != ntohs(udp->dst)) {
         printf("Expecting VXLAN packet in UDP but src[%d], dst[%d] ports don't match\n", 
             ntohs(udp->src), ntohs(udp->dst));
         return;
@@ -372,7 +372,7 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
         printf("ERROR: Inner IP header length < 20 bytes[%d]\n", ip_size);
         return;
     }
-    //Look determine IP packet type and handle accordingly
+    //Determine IP packet type and handle accordingly
     switch((int)ip_inner->ip_p) {
         case ICMP_PACKET:
             //printf("ICMP packet\n");
