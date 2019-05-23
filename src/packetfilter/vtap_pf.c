@@ -127,16 +127,15 @@ void print_data(const struct pcap_pkthdr *hdr, char *buf)
     printf("%s\n", logbuf);
 }
 
-void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
+void handle_icmp(const unsigned char *packet, char *buf)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
     unsigned int ip_size;
     struct icmphdr *icmp;
     struct tcpInfo src, dst;
-    char buf[MAX_BUF_SIZE];
     char icmp_type[SM_BUF_SIZE];
 
-    if(NULL == ip || NULL == hdr) {
+    if(NULL == ip || NULL == buf) {
         printf("ERROR: received NULL packet\n");
         return;
     }
@@ -145,7 +144,6 @@ void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
     /* Handle IP packet first */
     strncpy(src.ip, inet_ntoa(ip->ip_src), IPv4_ADDR_LEN);
     strncpy(dst.ip, inet_ntoa(ip->ip_dst), IPv4_ADDR_LEN);
-    memset(buf, 0, sizeof(buf));
     snprintf(buf, MAX_BUF_SIZE, "ICMP,%s,%s,",src.ip, dst.ip);
     icmp = (struct icmphdr *)((unsigned char *)ip + ip_size);
     memset(icmp_type, 0, sizeof(icmp_type));
@@ -196,19 +194,17 @@ void handle_icmp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
             break;
     }
     strncat(buf, icmp_type, strlen(icmp_type));
-    print_data(hdr, buf);
 }
 
-void handle_udp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
+void handle_udp(const unsigned char *packet, char *buf)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
     struct sniff_udp *udp;
     unsigned int ip_size;
     struct tcpInfo src, dst;
-    char buf[MAX_BUF_SIZE];
     char src_buf[MAX_BUF_SIZE/8], dst_buf[MAX_BUF_SIZE/8];
 
-    if(NULL == ip || NULL == hdr) {
+    if(NULL == ip || NULL == buf) {
         printf("ERROR: received NULL packet\n");
         return;
     }
@@ -233,20 +229,18 @@ void handle_udp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
     strncpy(dst.ip, inet_ntoa(ip->ip_dst), IPv4_ADDR_LEN);
 
     snprintf(buf, MAX_BUF_SIZE-16, "UDP,%s,%s", src_buf, dst_buf);
-    print_data(hdr, buf);
 }
 
-void handle_tcp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
+void handle_tcp(const unsigned char *packet, char *buf)
 {
     struct sniff_ip *ip = (struct sniff_ip *)packet;
     struct sniff_tcp *tcp;
     unsigned int ip_size;
     unsigned int tcp_size;
     struct tcpInfo src, dst;
-    char buf[MAX_BUF_SIZE];
     char src_buf[MAX_BUF_SIZE/8], dst_buf[MAX_BUF_SIZE/8];
 
-    if(NULL == ip || NULL == hdr) {
+    if(NULL == ip || NULL == buf) {
         printf("ERROR: received NULL packet\n");
         return;
     }
@@ -288,7 +282,6 @@ void handle_tcp(const struct pcap_pkthdr *hdr, const unsigned char *packet)
     if(tcp->th_flags & TH_RST) {
         strncat(buf, ",RST", 4);
     }
-    print_data(hdr, buf);
 }
 
 void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const unsigned char *packet)
@@ -299,6 +292,7 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
     struct sniff_vxlan *vxlan;
     unsigned int eth_size = ETH_HDR_SIZE;
     unsigned int ip_size;
+    char buf[MAX_BUF_SIZE*2], pkt_buf[MAX_BUF_SIZE];
 
     /*
      * The packets received on the V-TAP interface are VXLAN encapsulated 
@@ -373,31 +367,37 @@ void process_packet(unsigned char *args, const struct pcap_pkthdr *hdr, const un
         return;
     }
     //Determine IP packet type and handle accordingly
+    memset(pkt_buf, 0, sizeof(pkt_buf));
     switch((int)ip_inner->ip_p) {
         case ICMP_PACKET:
             //printf("ICMP packet\n");
-            handle_icmp(hdr, (unsigned char *)ip_inner);
+            handle_icmp((unsigned char *)ip_inner, pkt_buf);
             break;
         case IP_IN_IP_PACKET:
             printf("IP in IP packet\n");
-            //handle_ip_in_ip((unsigned char *)ip_inner);
+            //handle_ip_in_ip((unsigned char *)ip_inner, pkt_buf);
             break;
         case TCP_PACKET:
             //printf("TCP packet\n");
-            handle_tcp(hdr, (unsigned char *)ip_inner);
+            handle_tcp((unsigned char *)ip_inner, pkt_buf);
             break;
         case EGP_PACKET:
             printf("EGP packet\n");
-            //handle_EGP((unsigned char *)ip_inner);
+            //handle_EGP((unsigned char *)ip_inner, pkt_buf);
             break;
         case IGP_PACKET:
             printf("IGP packet\n");
-            //handle_IGP((unsigned char *)ip_inner);
+            //handle_IGP((unsigned char *)ip_inner, pkt_buf);
             break;
         case UDP_PACKET:
             //printf("UDP packet\n");
-            handle_udp(hdr, (unsigned char *) ip_inner);
+            handle_udp((unsigned char *) ip_inner, pkt_buf);
             break;
+    }
+    if(0 != strlen(pkt_buf)) {
+        memset(buf, 0, sizeof(buf));
+        snprintf(buf, MAX_BUF_SIZE*2, "VNI=%d,%s", ntohl(vxlan->vni<<8), pkt_buf);
+        print_data(hdr, buf);
     }
 }
 
